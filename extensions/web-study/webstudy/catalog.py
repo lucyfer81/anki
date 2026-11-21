@@ -149,6 +149,10 @@ class Catalog:
                 );
                 create index if not exists previews_by_file
                     on previews (fingerprint, confirmed_version);
+                create table if not exists delivered (
+                    user text primary key,
+                    version integer not null
+                );
             """)
 
     @contextmanager
@@ -181,6 +185,23 @@ class Catalog:
         with self._connection() as db:
             db.execute("begin")
             return self._version(db), self._words(db)
+
+    def delivered_version(self, user: str) -> int:
+        with self._connection() as db:
+            row = db.execute(
+                "select version from delivered where user = ?", (user,)
+            ).fetchone()
+            return 0 if row is None else row[0]
+
+    def record_delivery(self, user: str, version: int) -> None:
+        with self._connection() as db:
+            db.execute(
+                """
+                insert into delivered values (?, ?)
+                on conflict (user) do update set version = excluded.version
+                """,
+                (user, version),
+            )
 
     def export_csv(self) -> str:
         _, entries = self.snapshot()
