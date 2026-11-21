@@ -9,13 +9,14 @@ requires-python = ">=3.12"
 # Anki is deliberately installed from a local source build, not an index.
 dependencies = [
   "fastapi>=0.115,<1",
+  "httpx2>=2.16,<3",
   "jinja2>=3.1,<4",
   "python-multipart>=0.0.20,<1",
   "uvicorn>=0.30,<1",
 ]
 
 [dependency-groups]
-dev = ["httpx2", "pytest>=8"]
+dev = ["pytest>=8"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
