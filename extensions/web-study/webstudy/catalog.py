@@ -15,6 +15,7 @@ from uuid import uuid4
 
 COLUMNS = ("id", "word", "meaning", "example")
 DELIMITERS = {"csv": ",", "tsv": "\t"}
+MAX_AMBIGUOUS_ROWS = 2000
 
 
 class InvalidImport(ValueError):
@@ -43,6 +44,7 @@ class ImportRow:
     entry: Word
     before: Word | None
     candidates: tuple[Word, ...] = ()
+    example_provided: bool = True
 
 
 @dataclass(frozen=True)
@@ -63,7 +65,7 @@ class Preview:
         )
 
 
-def _parse(data: bytes, format: str) -> Iterator[tuple[int, Word]]:
+def _parse(data: bytes, format: str) -> Iterator[tuple[int, Word, bool]]:
     if format not in DELIMITERS:
         raise InvalidImport("Use a UTF-8 CSV or TSV file.")
     try:
@@ -107,7 +109,11 @@ def _parse(data: bytes, format: str) -> Iterator[tuple[int, Word]]:
                 raise InvalidImport(f"Line {line}: duplicate ID.")
             if source_id:
                 seen.add(source_id)
-            yield line, Word(source_id, word, meaning, values.get("example", ""))
+            yield (
+                line,
+                Word(source_id, word, meaning, values.get("example", "")),
+                "example" in values,
+            )
     except csv.Error as exc:
         raise InvalidImport(f"Line {line}: {exc}.") from exc
 
@@ -119,6 +125,7 @@ def _decode_rows(payload: str) -> Iterator[ImportRow]:
             Word(**row["entry"]),
             Word(**row["before"]) if row["before"] is not None else None,
             tuple(Word(**entry) for entry in row["candidates"]),
+            row.get("example_provided", True),
         )
 
 
@@ -235,14 +242,33 @@ class Catalog:
                 by_word: dict[str, list[Word]] = defaultdict(list)
                 for word in words:
                     by_word[word.word].append(word)
-                for line, entry in parsed:
+                ambiguous = 0
+                for line, entry, example_provided in parsed:
                     if entry.id:
-                        rows.append(ImportRow(line, entry, by_id.get(entry.id)))
-                    else:
-                        candidates = tuple(by_word.get(entry.word, ()))
+                        before = by_id.get(entry.id)
+                        if before is not None and not example_provided:
+                            entry = replace(entry, example=before.example)
                         rows.append(
                             ImportRow(
-                                line, replace(entry, id=str(uuid4())), None, candidates
+                                line, entry, before, example_provided=example_provided
+                            )
+                        )
+                    else:
+                        candidates = tuple(by_word.get(entry.word, ()))
+                        if candidates:
+                            ambiguous += 1
+                            if ambiguous > MAX_AMBIGUOUS_ROWS:
+                                raise InvalidImport(
+                                    f"At most {MAX_AMBIGUOUS_ROWS} rows can need a choice. "
+                                    "Split the file or provide IDs."
+                                )
+                        rows.append(
+                            ImportRow(
+                                line,
+                                replace(entry, id=str(uuid4())),
+                                None,
+                                candidates,
+                                example_provided,
                             )
                         )
             db.execute(
@@ -326,7 +352,11 @@ def _resolve(rows: tuple[ImportRow, ...], resolutions: dict[int, str]) -> list[W
                     raise InvalidImport(
                         f"Line {row.line}: choose an update, new sense or skip."
                     )
-                entry = replace(entry, id=before.id)
+                entry = replace(
+                    entry,
+                    id=before.id,
+                    example=entry.example if row.example_provided else before.example,
+                )
         if entry.id in selected_ids:
             raise InvalidImport(f"Line {row.line}: multiple rows target the same ID.")
         selected_ids.add(entry.id)

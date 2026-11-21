@@ -7,6 +7,9 @@
 <p>此文件已在版本 {{ preview.previous_version }} 提交；不会重放修改。</p>
 {% else %}
 <p>基准版本 {{ preview.base_version }}：新增 {{ preview.added }} 条，更新 {{ preview.updated }} 条，待选择 {{ preview.rows | selectattr("candidates") | list | length }} 条。</p>
+{% if preview.rows and not preview.rows[0].example_provided %}
+<p>本文件未提供例句列，更新词条时保留原例句。</p>
+{% endif %}
 {% endif %}
 <form action="/imports/confirm" method="post">
   <input type="hidden" name="csrf" value="{{ session.csrf }}">

@@ -133,3 +133,30 @@ def test_import_preview_is_session_bound_and_confirmation_updates_both_accounts(
         assert "new meaning" in reveal(a, a.get("/study")).text
         assert "new meaning" in reveal(b, b.get("/study")).text
         assert "w1,pomelo,new meaning," in a.get("/vocabulary.csv").text
+
+
+def test_bulk_ambiguous_preview_can_be_confirmed(tmp_path):
+    Auth(tmp_path / "auth.sqlite3").initialize(PASSWORDS)
+    with browsers(create_app(tmp_path)) as (a, _):
+        assert login(a, "a").status_code == 303
+        assert confirm(
+            a, upload(a, b"id,word,meaning\nw1,bank,river shore\n")
+        ).is_success
+        repeated = b"word,meaning\n" + b"bank,other sense\n" * 999
+        preview = upload(a, repeated)
+        assert "待选择 999 条" in preview.text
+        response = a.post(
+            "/imports/confirm",
+            data={
+                "csrf": field(preview, "csrf"),
+                "preview_id": field(preview, "preview_id"),
+                **{f"choice_{line}": "skip" for line in range(2, 1001)},
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert a.get("/vocabulary.csv").text.splitlines()[1:] == [
+            "w1,bank,river shore,"
+        ]
+
+        rejected = upload(a, b"word,meaning\n" + b"bank,another sense\n" * 2001)
+        assert rejected.status_code == 400

@@ -14,7 +14,13 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from webstudy.auth import LOGIN_TTL, SESSION_TTL, Auth, Session
-from webstudy.catalog import Catalog, InvalidImport, PreviewNotFound, StalePreview
+from webstudy.catalog import (
+    MAX_AMBIGUOUS_ROWS,
+    Catalog,
+    InvalidImport,
+    PreviewNotFound,
+    StalePreview,
+)
 from webstudy.service import StaleTurn, StudyCard, StudyService
 
 COOKIE = "webstudy_session"
@@ -218,7 +224,7 @@ def create_app(data_dir: Path) -> FastAPI:
         session, _ = protected(request, csrf)
         try:
             version = catalog.confirm(preview_id, resolutions, owner=session.id)
-        except (PreviewNotFound, StalePreview, InvalidImport) as exc:
+        except InvalidImport as exc:
             status = (
                 404
                 if isinstance(exc, PreviewNotFound)
@@ -235,9 +241,19 @@ def create_app(data_dir: Path) -> FastAPI:
         return page(request, "confirmed", version=version, pending=pending)
 
     @app.post("/imports/confirm")
-    async def confirm_import(request: Request, csrf: FormText, preview_id: FormText):
+    async def confirm_import(request: Request):
         resolutions = {}
-        async with request.form() as form:
+        # Keep the parser limit in sync with the largest preview we can produce,
+        # allowing two extra fields for CSRF and the preview ID.
+        async with request.form(max_fields=MAX_AMBIGUOUS_ROWS + 2, max_files=0) as form:
+            csrf, preview_id = form.get("csrf"), form.get("preview_id")
+            if (
+                not isinstance(csrf, str)
+                or not isinstance(preview_id, str)
+                or len(form.getlist("csrf")) != 1
+                or len(form.getlist("preview_id")) != 1
+            ):
+                raise HTTPException(400, "确认表单无效，请重新预览。")
             for key, choice in form.multi_items():
                 if key.startswith("choice_"):
                     number = key.removeprefix("choice_")

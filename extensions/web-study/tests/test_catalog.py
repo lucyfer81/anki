@@ -86,6 +86,29 @@ def test_old_preview_cannot_overwrite_a_newer_confirmation(tmp_path):
     assert catalog.snapshot()[1][0].meaning == "new"
 
 
+@pytest.mark.parametrize("with_id", [True, False])
+def test_missing_example_column_preserves_the_existing_example(tmp_path, with_id):
+    catalog = Catalog(tmp_path / "catalog.sqlite3")
+    initial = catalog.preview(
+        b"id,word,meaning,example\nw1,bank,old,on the bank\n", "csv"
+    )
+    catalog.confirm(initial.id, {})
+
+    if with_id:
+        update = catalog.preview(b"id,word,meaning\nw1,bank,river shore\n", "csv")
+        assert update.rows[0].entry.example == "on the bank"
+        choices = {}
+    else:
+        update = catalog.preview(b"word,meaning\nbank,river shore\n", "csv")
+        choices = {2: "update:w1"}
+    assert catalog.confirm(update.id, choices) == 2
+    assert catalog.export_csv().splitlines()[1] == "w1,bank,river shore,on the bank"
+
+    clear = catalog.preview(b"id,word,meaning,example\nw1,bank,river shore,\n", "csv")
+    assert catalog.confirm(clear.id, {}) == 3
+    assert catalog.export_csv().splitlines()[1] == "w1,bank,river shore,"
+
+
 @pytest.mark.parametrize(
     ("data", "line"),
     [

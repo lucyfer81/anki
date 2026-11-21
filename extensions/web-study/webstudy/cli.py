@@ -71,6 +71,8 @@ def _show_diff(preview: dict) -> dict[str, str] | None:
     print(
         f"新增 {preview['added']} 条，更新 {preview['updated']} 条。修改对 A、B 均生效。"
     )
+    if preview["rows"] and not preview["rows"][0]["example_provided"]:
+        print("本文件未提供例句列，更新词条时保留原例句。")
     resolutions = {}
     for row in preview["rows"]:
         entry, before, candidates = row["entry"], row["before"], row["candidates"]
