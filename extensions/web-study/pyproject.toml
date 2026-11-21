@@ -7,9 +7,15 @@ name = "webstudy"
 version = "0.1.0"
 requires-python = ">=3.12"
 # Anki is deliberately installed from a local source build, not an index.
+dependencies = [
+  "fastapi>=0.115,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn>=0.30,<1",
+]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["httpx2", "pytest>=8"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -19,4 +25,4 @@ testpaths = ["tests"]
 extend = "../../.ruff.toml"
 
 [tool.ruff.lint.isort]
-known-first-party = ["webstudy"]
+known-first-party = ["tests", "webstudy"]

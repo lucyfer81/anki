@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>词表已确认</h1>
+<p>本次文件对应词库版本 {{ version }}。</p>
+{% if pending %}
+<p role="status">以下账号仍待投递：{{ pending | join("、") | upper }}。下次取题时会重试，也可以重新确认本次导入。</p>
+{% else %}
+<p>账号 A、B 均已接收最新词表。</p>
+{% endif %}
+<p><a href="/study">返回复习</a></p>
+{% endblock %}

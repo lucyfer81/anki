@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}导入预览 · Anki 单词卡{% endblock %}
+{% block body %}
+<h1>导入预览</h1>
+<p>确认后，修改对账号 A、B 同时生效。不会清除复习记录，也不会删除文件中未列出的词条。</p>
+{% if preview.previous_version is not none %}
+<p>此文件已在版本 {{ preview.previous_version }} 提交；不会重放修改。</p>
+{% else %}
+<p>基准版本 {{ preview.base_version }}：新增 {{ preview.added }} 条，更新 {{ preview.updated }} 条，待选择 {{ preview.rows | selectattr("candidates") | list | length }} 条。</p>
+{% endif %}
+<form action="/imports/confirm" method="post">
+  <input type="hidden" name="csrf" value="{{ session.csrf }}">
+  <input type="hidden" name="preview_id" value="{{ preview.id }}">
+  {% for row in preview.rows if row.entry != row.before %}
+  <article>
+    <h2 class="vocab">第 {{ row.line }} 行：{{ row.entry.word }}</h2>
+    <p class="vocab">{{ row.entry.meaning }}</p>
+    {% if row.entry.example %}<p class="vocab">{{ row.entry.example }}</p>{% endif %}
+    {% if row.before %}
+    <p class="vocab">原词条（{{ row.before.id }}）：{{ row.before.word }} — {{ row.before.meaning }}</p>
+    {% if row.before.example %}<p class="vocab">原例句：{{ row.before.example }}</p>{% endif %}
+    {% elif row.candidates %}
+    <label>此拼写已有词条，请逐条选择：
+      <select name="choice_{{ row.line }}" required>
+        <option value="">请选择</option>
+        {% for word in row.candidates %}
+        <option value="update:{{ word.id }}">更新 {{ word.id }}：{{ word.meaning }}</option>
+        {% endfor %}
+        <option value="new">新增词义</option>
+        <option value="skip">跳过</option>
+      </select>
+    </label>
+    {% endif %}
+  </article>
+  {% endfor %}
+  <button type="submit">确认导入</button> · <a href="/study">返回</a>
+</form>
+{% endblock %}

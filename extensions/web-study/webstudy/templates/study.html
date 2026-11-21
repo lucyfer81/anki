@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block body %}
+<header>
+  <h1>单词复习 · {{ session.user | upper }}</h1>
+  <form action="/logout" method="post">
+    <input type="hidden" name="csrf" value="{{ session.csrf }}">
+    <button type="submit">退出</button>
+  </form>
+</header>
+{% if pending %}<p role="status">等待投递词表的账号：{{ pending | join("、") | upper }}。</p>{% endif %}
+{% if card %}
+<article>
+  <h2 class="vocab">{{ card.word }}</h2>
+  {% if card.meaning is none %}
+  <form action="/study/reveal" method="post">
+    <input type="hidden" name="csrf" value="{{ session.csrf }}">
+    <input type="hidden" name="token" value="{{ card.token }}">
+    <button type="submit">显示释义</button>
+  </form>
+  {% else %}
+  <p class="vocab">{{ card.meaning }}</p>
+  {% if card.example %}<p class="vocab">{{ card.example }}</p>{% endif %}
+  <form action="/study/answer" method="post" class="choices">
+    <input type="hidden" name="csrf" value="{{ session.csrf }}">
+    <input type="hidden" name="token" value="{{ card.token }}">
+    {% for rating, label in ratings.items() %}<button type="submit" name="rating" value="{{ rating }}">{{ label }}</button>{% endfor %}
+  </form>
+  {% endif %}
+</article>
+{% else %}
+<p>暂无到期卡片。</p>
+{% endif %}
+<section>
+  <h2>共享词表</h2>
+  <p><a href="/vocabulary.csv">下载带 ID 的 CSV</a></p>
+  <form action="/imports/preview" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ session.csrf }}">
+    <label>UTF-8 CSV 或 TSV <input type="file" name="file" accept=".csv,.tsv" required></label>
+    <button type="submit">预览导入</button>
+  </form>
+</section>
+{% endblock %}
