@@ -1,0 +1,14 @@
+set positional-arguments
+
+export UV_PROJECT_ENVIRONMENT := justfile_directory() / "../../.venv"
+
+default:
+    @just --list
+
+setup wheel:
+    @case "$(basename -- "$1")" in anki-*.whl) test -f "$1" ;; *) false ;; esac || { echo "Pass the local anki-*.whl built by the root 'just wheels'." >&2; exit 1; }
+    uv sync --inexact
+    uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --reinstall-package anki "$(realpath -- "$1")"
+
+test *args:
+    uv run --no-sync python -m pytest "$@"
