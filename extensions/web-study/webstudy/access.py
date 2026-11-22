@@ -1,15 +1,13 @@
 # Copyright: Anki Software, LLC and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""Automatic sign-in behind Cloudflare Access, one hostname per account."""
+"""Automatic sign-in behind Cloudflare Access, one entry link per account."""
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import jwt
-
-from webstudy import USERS
 
 
 @dataclass(frozen=True)
@@ -37,16 +35,6 @@ def load_access_config(path: Path) -> AccessConfig | None:
         )
     except (OSError, ValueError, KeyError):
         return None
-
-
-def user_for_host(config: AccessConfig, host: str) -> str | None:
-    """Map xct.anki.aizhi.app -> xct, ignoring any port and letter case."""
-    hostname = host.split(":", maxsplit=1)[0].strip().lower()
-    suffix = "." + config.domain
-    if not hostname.endswith(suffix):
-        return None
-    prefix = hostname[: -len(suffix)]
-    return prefix if prefix in USERS else None
 
 
 _clients: dict[str, jwt.PyJWKClient] = {}

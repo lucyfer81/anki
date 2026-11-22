@@ -104,24 +104,21 @@ def create_app(data_dir: Path) -> FastAPI:
     def session_for(request: Request) -> Session | None:
         return auth.session(request.cookies.get(COOKIE))
 
-    def _access_user(request: Request) -> str | None:
+    def _verified_access(request: Request) -> bool:
         config: access.AccessConfig | None = request.app.state.access
         if config is None:
-            return None
+            return False
         client = request.client
         # Only the local tunnel proxy may present Access assertions; a direct
         # LAN connection cannot spoof its way in with a forged header.
         if client is None or client.host not in ("127.0.0.1", "::1"):
-            return None
+            return False
         token = request.headers.get("Cf-Access-Jwt-Assertion")
-        if not token or not access.valid_assertion(config, token):
-            return None
-        return access.user_for_host(config, request.headers.get("host", ""))
+        return bool(token) and access.valid_assertion(config, token)
 
-    def _access_entry(request: Request) -> Response | None:
-        user = _access_user(request)
-        if user is None:
-            return None
+    def _access_entry(request: Request, user: str) -> Response:
+        if not _verified_access(request):
+            return RedirectResponse("/login", status_code=303)
         token, _ = auth.access_session(user)
         return _cookie(
             request, RedirectResponse("/study", status_code=303), token, SESSION_TTL
@@ -146,8 +143,6 @@ def create_app(data_dir: Path) -> FastAPI:
             if _json(request):
                 return JSONResponse({"user": session.user, "csrf": session.csrf})
             return RedirectResponse("/study", status_code=303)
-        if (entry := _access_entry(request)) is not None:
-            return entry
         if session is None:
             token, session = auth.begin_login()
         else:
@@ -209,7 +204,7 @@ def create_app(data_dir: Path) -> FastAPI:
     def study(request: Request):
         session = session_for(request)
         if session is None or session.user is None:
-            return _access_entry(request) or RedirectResponse("/login", status_code=303)
+            return RedirectResponse("/login", status_code=303)
         service: StudyService = request.app.state.study
         card = _study_operation(session.user, lambda: service.next_card(session.user))
         return study_page(request, session, card)
@@ -306,6 +301,16 @@ def create_app(data_dir: Path) -> FastAPI:
             catalog.export_csv(),
             media_type="text/csv",
             headers={"Content-Disposition": 'attachment; filename="vocabulary.csv"'},
+        )
+
+    # One entry link per account, e.g. https://anki.aizhi.app/xct.
+    for user in USERS:
+
+        def access_entry(request: Request, user: str = user) -> Response:
+            return _access_entry(request, user)
+
+        app.add_api_route(
+            f"/{user}", access_entry, methods=["GET"], name=f"access-entry-{user}"
         )
 
     return app
