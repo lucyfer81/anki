@@ -7,7 +7,9 @@ from contextlib import closing, contextmanager
 
 from fastapi.testclient import TestClient
 
-PASSWORDS = {"a": "test-password-a", "b": "test-password-b"}
+from webstudy import USERS
+
+PASSWORDS = {user: f"test-password-{user}" for user in USERS}
 
 
 @contextmanager

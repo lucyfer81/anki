@@ -13,6 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from webstudy import USERS
 from webstudy.auth import LOGIN_TTL, SESSION_TTL, Auth, Session
 from webstudy.catalog import (
     MAX_AMBIGUOUS_ROWS,
@@ -128,7 +129,7 @@ def create_app(data_dir: Path) -> FastAPI:
         response = (
             JSONResponse({"csrf": session.csrf})
             if _json(request)
-            else page(request, "login", session=session)
+            else page(request, "login", session=session, users=USERS)
         )
         return _cookie(request, response, token, LOGIN_TTL) if token else response
 
@@ -141,6 +142,8 @@ def create_app(data_dir: Path) -> FastAPI:
             or not session.accepts_csrf(csrf)
         ):
             raise HTTPException(403, "请重新打开登录页。")
+        # Accept the account name in any case, like the import CLI does.
+        user = user.strip().lower()
         result = auth.login(session, user, password)
         if result is None:
             message = "账号或密码错误。"

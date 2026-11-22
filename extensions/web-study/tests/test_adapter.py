@@ -3,11 +3,12 @@
 
 from contextlib import ExitStack
 
+from webstudy import USERS
 from webstudy.anki_adapter import StudyCollection
 
 
 def test_update_preserves_each_collections_card_and_progress(tmp_path):
-    paths = [tmp_path / user / "collection.anki2" for user in ("a", "b")]
+    paths = [tmp_path / user / "collection.anki2" for user in USERS]
     with ExitStack() as stack:
         a, b = [open_collection(stack, path) for path in paths]
         for collection in (a, b):

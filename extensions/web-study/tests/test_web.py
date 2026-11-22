@@ -13,17 +13,19 @@ from tests.helpers import (
     reveal,
     upload,
 )
+from webstudy import USERS
 from webstudy.app import create_app
 from webstudy.auth import Auth
 
 
 def test_rating_is_account_bound_and_concurrent_submissions_only_count_once(tmp_path):
+    first, second = USERS
     Auth(tmp_path / "auth.sqlite3").initialize(PASSWORDS)
     with browsers(create_app(tmp_path)) as (a, b):
         assert a.get("/study", follow_redirects=False).headers["location"] == "/login"
-        assert login(a, "a", "wrong-password").status_code == 401
-        assert login(a, "a").status_code == 303
-        assert login(b, "b").status_code == 303
+        assert login(a, first, "wrong-password").status_code == 401
+        assert login(a, first).status_code == 303
+        assert login(b, second).status_code == 303
         assert confirm(a, upload(a, b"id,word,meaning\nw1,pomelo,citrus\n")).is_success
 
         question = a.get("/study")
@@ -95,16 +97,17 @@ def test_rating_is_account_bound_and_concurrent_submissions_only_count_once(tmp_
         assert a.get("/vocabulary.csv").status_code == 401
         assert b.get("/vocabulary.csv").status_code == 200
 
-    assert card_state(tmp_path, "a")[1::2] == (1, 1)
-    assert card_state(tmp_path, "b")[1::2] == (0, 0)
+    assert card_state(tmp_path, first)[1::2] == (1, 1)
+    assert card_state(tmp_path, second)[1::2] == (0, 0)
 
 
 def test_import_preview_is_session_bound_and_confirmation_updates_both_accounts(
     tmp_path,
 ):
+    first, second = USERS
     Auth(tmp_path / "auth.sqlite3").initialize(PASSWORDS)
     with browsers(create_app(tmp_path)) as (a, b):
-        assert login(a, "a").status_code == login(b, "b").status_code == 303
+        assert login(a, first).status_code == login(b, second).status_code == 303
         initial = upload(a, b"id,word,meaning\nw1,pomelo,<old meaning>\n")
         assert "&lt;old meaning&gt;" in initial.text
         assert "<old meaning>" not in initial.text
@@ -136,9 +139,10 @@ def test_import_preview_is_session_bound_and_confirmation_updates_both_accounts(
 
 
 def test_bulk_ambiguous_preview_can_be_confirmed(tmp_path):
+    first, _ = USERS
     Auth(tmp_path / "auth.sqlite3").initialize(PASSWORDS)
     with browsers(create_app(tmp_path)) as (a, _):
-        assert login(a, "a").status_code == 303
+        assert login(a, first).status_code == 303
         assert confirm(
             a, upload(a, b"id,word,meaning\nw1,bank,river shore\n")
         ).is_success

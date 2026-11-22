@@ -2,7 +2,7 @@
 {% block title %}导入预览 · Anki 单词卡{% endblock %}
 {% block body %}
 <h1>导入预览</h1>
-<p>确认后，修改对账号 A、B 同时生效。不会清除复习记录，也不会删除文件中未列出的词条。</p>
+<p>确认后，修改对两个账号同时生效。不会清除复习记录，也不会删除文件中未列出的词条。</p>
 {% if preview.previous_version is not none %}
 <p>此文件已在版本 {{ preview.previous_version }} 提交；不会重放修改。</p>
 {% else %}

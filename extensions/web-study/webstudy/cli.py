@@ -17,6 +17,9 @@ from webstudy.auth import Auth
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
+ACCOUNT_LABELS = "、".join(user.upper() for user in USERS)
+ACCOUNT_CHOICES = " 或 ".join(user.upper() for user in USERS)
+ACCOUNT_MENU = "/".join(user.upper() for user in USERS)
 
 
 @contextmanager
@@ -41,7 +44,7 @@ def init_users() -> None:
         passwords[user] = password
     with data_lock(DATA):
         Auth(DATA / "auth.sqlite3").initialize(passwords)
-    print("A、B 密码已保存；旧会话已失效。")
+    print(f"{ACCOUNT_LABELS} 密码已保存；旧会话已失效。")
 
 
 def serve(host: str, port: int) -> None:
@@ -69,7 +72,8 @@ def _show_diff(preview: dict) -> dict[str, str] | None:
     if preview["previous_version"] is not None:
         print(f"此文件已在版本 {preview['previous_version']} 提交；不会重放修改。")
     print(
-        f"新增 {preview['added']} 条，更新 {preview['updated']} 条。修改对 A、B 均生效。"
+        f"新增 {preview['added']} 条，更新 {preview['updated']} 条。"
+        f"修改对 {ACCOUNT_LABELS} 均生效。"
     )
     if preview["rows"] and not preview["rows"][0]["example_provided"]:
         print("本文件未提供例句列，更新词条时保留原例句。")
@@ -118,9 +122,9 @@ def import_file(path: Path, url: str, user: str | None) -> None:
         content = file.read(MAX_UPLOAD + 1)
     if len(content) > MAX_UPLOAD:
         raise ValueError("文件不能超过 2 MiB。")
-    user = user or input("登录账号（A/B）：").strip().lower()
+    user = user or input(f"登录账号（{ACCOUNT_MENU}）：").strip().lower()
     if user not in USERS:
-        raise ValueError("请选择账号 A 或 B。")
+        raise ValueError(f"请选择账号 {ACCOUNT_CHOICES}。")
     password = getpass.getpass(f"账号 {user.upper()} 的密码：")
     # Talk directly to the LAN service, never via ambient proxy settings.
     with httpx2.Client(
@@ -163,7 +167,7 @@ def import_file(path: Path, url: str, user: str | None) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="webstudy")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("init-users", help="交互设置或更换 A、B 的密码")
+    commands.add_parser("init-users", help=f"交互设置或更换 {ACCOUNT_LABELS} 的密码")
     serve_parser = commands.add_parser("serve", help="启动单进程 Web 学习服务")
     serve_parser.add_argument("--host", required=True)
     serve_parser.add_argument("--port", required=True, type=int)
