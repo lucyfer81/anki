@@ -54,7 +54,15 @@ def serve(host: str, port: int) -> None:
         if not Auth(DATA / "auth.sqlite3").initialized():
             raise ValueError("请先运行 init-users 设置账号密码。")
         uvicorn.run(
-            create_app(DATA), host=host, port=port, workers=1, proxy_headers=False
+            create_app(DATA),
+            host=host,
+            port=port,
+            workers=1,
+            # Trust X-Forwarded-* only from loopback so a Cloudflare Tunnel
+            # (or any local reverse proxy) yields correct https scheme and
+            # Secure cookies, while direct LAN requests stay plain HTTP.
+            proxy_headers=True,
+            forwarded_allow_ips="127.0.0.1,::1",
         )
 
 

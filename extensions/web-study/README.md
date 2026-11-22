@@ -21,6 +21,10 @@ just serve 0.0.0.0 8765
 
 `setup` 使用仓库根目录的 `.venv`。`init-users` 交互设置各账号（XCT、LCL）的密码，只存带盐哈希；停服后可重跑以同时更换两个密码并注销旧会话。`serve` 使用单 worker 并独占锁定 `extensions/web-study/data/`，与启动命令的工作目录和地址无关。
 
+### 通过域名和 HTTPS 访问（可选）
+
+如已配置 Cloudflare Tunnel + Access（例如 `https://anki.aizhi.app`），在该隧道的 Public Hostname 里把 Service 指向 `http://localhost:8765` 即可。`serve` 已启用代理头解析：仅信任回环来源的 `X-Forwarded-Proto`，因此经隧道访问时 Cookie 会带 `Secure`，局域网直连 HTTP 不受影响。Access 在 Cloudflare 边缘完成认证后再回源，比裸露的端口转发安全得多，但仍应把 Access 策略限制到具体用户或邮箱域。
+
 **仅用于可信局域网。** HTTP 不加密密码、会话或学习内容，不要做公网端口转发。`0.0.0.0` 会监听所有 IPv4 接口；也可绑定指定的局域网 IP，或用 `127.0.0.1` 限制为本机。防火墙只放行需要访问的局域网来源。
 
 ## 导入词表
