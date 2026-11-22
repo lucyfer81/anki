@@ -123,6 +123,12 @@ class Auth:
     def begin_login(self) -> tuple[str, Session]:
         return self._new_session(None)
 
+    def access_session(self, user: str) -> tuple[str, Session]:
+        """Create an authenticated session after Cloudflare Access proved user."""
+        if user not in USERS:
+            raise ValueError(f"Unknown account: {user}")
+        return self._new_session(user)
+
     def login(
         self, old: Session, user: str, password: str
     ) -> tuple[str, Session] | None:

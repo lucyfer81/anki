@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from webstudy import USERS
+from webstudy import USERS, access
 from webstudy.auth import LOGIN_TTL, SESSION_TTL, Auth, Session
 from webstudy.catalog import (
     MAX_AMBIGUOUS_ROWS,
@@ -76,6 +76,7 @@ def create_app(data_dir: Path) -> FastAPI:
             await run_in_threadpool(study.close)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.access = access.load_access_config(data_dir / "access.json")
 
     @app.middleware("http")
     async def response_headers(request: Request, call_next):
@@ -103,6 +104,29 @@ def create_app(data_dir: Path) -> FastAPI:
     def session_for(request: Request) -> Session | None:
         return auth.session(request.cookies.get(COOKIE))
 
+    def _access_user(request: Request) -> str | None:
+        config: access.AccessConfig | None = request.app.state.access
+        if config is None:
+            return None
+        client = request.client
+        # Only the local tunnel proxy may present Access assertions; a direct
+        # LAN connection cannot spoof its way in with a forged header.
+        if client is None or client.host not in ("127.0.0.1", "::1"):
+            return None
+        token = request.headers.get("Cf-Access-Jwt-Assertion")
+        if not token or not access.valid_assertion(config, token):
+            return None
+        return access.user_for_host(config, request.headers.get("host", ""))
+
+    def _access_entry(request: Request) -> Response | None:
+        user = _access_user(request)
+        if user is None:
+            return None
+        token, _ = auth.access_session(user)
+        return _cookie(
+            request, RedirectResponse("/study", status_code=303), token, SESSION_TTL
+        )
+
     def protected(request: Request, csrf: str | None = None) -> tuple[Session, str]:
         session = session_for(request)
         if session is None or session.user is None:
@@ -122,6 +146,8 @@ def create_app(data_dir: Path) -> FastAPI:
             if _json(request):
                 return JSONResponse({"user": session.user, "csrf": session.csrf})
             return RedirectResponse("/study", status_code=303)
+        if (entry := _access_entry(request)) is not None:
+            return entry
         if session is None:
             token, session = auth.begin_login()
         else:
@@ -183,7 +209,7 @@ def create_app(data_dir: Path) -> FastAPI:
     def study(request: Request):
         session = session_for(request)
         if session is None or session.user is None:
-            return RedirectResponse("/login", status_code=303)
+            return _access_entry(request) or RedirectResponse("/login", status_code=303)
         service: StudyService = request.app.state.study
         card = _study_operation(session.user, lambda: service.next_card(session.user))
         return study_page(request, session, card)

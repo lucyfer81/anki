@@ -23,7 +23,15 @@ just serve 0.0.0.0 8765
 
 ### 通过域名和 HTTPS 访问（可选）
 
-如已配置 Cloudflare Tunnel + Access（例如 `https://anki.aizhi.app`），在该隧道的 Public Hostname 里把 Service 指向 `http://localhost:8765` 即可。`serve` 已启用代理头解析：仅信任回环来源的 `X-Forwarded-Proto`，因此经隧道访问时 Cookie 会带 `Secure`，局域网直连 HTTP 不受影响。Access 在 Cloudflare 边缘完成认证后再回源，比裸露的端口转发安全得多，但仍应把 Access 策略限制到具体用户或邮箱域。
+前提：本机运行 Cloudflare Tunnel，`anki.aizhi.app` 的 Service 指向 `http://127.0.0.1:8765`，并用 Cloudflare Access 保护。`serve` 只信任回环来源的 `X-Forwarded-Proto`，经隧道访问时 Cookie 自动带 `Secure`，局域网直连 HTTP 不受影响。
+
+在 `data/access.json` 配置自动登录（`aud` 是 Access 应用概览页的 AUD Tag）：
+
+```json
+{ "team": "vincentgroup", "aud": "<AUD Tag>", "domain": "anki.aizhi.app" }
+```
+
+再把 `xct.anki.aizhi.app`、`lcl.anki.aizhi.app` 加入该 Access 应用和隧道的 Public Hostname，即可给每人一个直达链接：打开 `https://xct.anki.aizhi.app`，通过 Cloudflare Access 认证后直接进入 XCT 的学习页，无需选账号或输密码。应用会验证 Access 签发的 JWT（签名、受众、有效期），且只信任经本机隧道回环进来的请求；局域网直连仍走账号密码登录。注意：能通过 Access 认证的人都可以打开任一链接，请把 Access 策略限制到家庭成员。「退出」只退出本应用会话，下次打开链接会凭 Access 再次自动进入。
 
 **仅用于可信局域网。** HTTP 不加密密码、会话或学习内容，不要做公网端口转发。`0.0.0.0` 会监听所有 IPv4 接口；也可绑定指定的局域网 IP，或用 `127.0.0.1` 限制为本机。防火墙只放行需要访问的局域网来源。
 
