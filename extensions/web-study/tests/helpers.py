@@ -7,14 +7,14 @@ from contextlib import closing, contextmanager
 
 from fastapi.testclient import TestClient
 
-from webstudy import USERS
-
-PASSWORDS = {user: f"test-password-{user}" for user in USERS}
-
 
 @contextmanager
 def browsers(app):
-    with TestClient(app) as a, closing(TestClient(app)) as b:
+    # Simulate clients on the server machine; entry links trust them.
+    with (
+        TestClient(app, client=("127.0.0.1", 50000)) as a,
+        closing(TestClient(app, client=("127.0.0.1", 50001))) as b,
+    ):
         yield a, b
 
 
@@ -25,13 +25,11 @@ def field(response, name):
     return match[1]
 
 
-def login(client, user, password=None):
-    csrf = field(client.get("/login"), "csrf")
-    return client.post(
-        "/login",
-        data={"user": user, "password": password or PASSWORDS[user], "csrf": csrf},
-        follow_redirects=False,
-    )
+def login(client, user):
+    """Open an entry link, which signs the browser into the account."""
+    response = client.get(f"/{user}", follow_redirects=False)
+    assert response.status_code == 303, response.text
+    return response
 
 
 def upload(client, data, name="words.csv"):

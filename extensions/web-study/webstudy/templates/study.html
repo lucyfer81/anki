@@ -2,10 +2,6 @@
 {% block body %}
 <header>
   <h1>单词复习 · {{ session.user | upper }}</h1>
-  <form action="/logout" method="post">
-    <input type="hidden" name="csrf" value="{{ session.csrf }}">
-    <button type="submit">退出</button>
-  </form>
 </header>
 {% if pending %}<p role="status">等待投递词表的账号：{{ pending | join("、") | upper }}。</p>{% endif %}
 {% if card %}

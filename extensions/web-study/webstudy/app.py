@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from webstudy import USERS, access
-from webstudy.auth import LOGIN_TTL, SESSION_TTL, Auth, Session
+from webstudy.auth import SESSION_TTL, Auth, Session
 from webstudy.catalog import (
     MAX_AMBIGUOUS_ROWS,
     Catalog,
@@ -27,6 +27,7 @@ from webstudy.service import StaleTurn, StudyCard, StudyService
 COOKIE = "webstudy_session"
 MAX_UPLOAD = 2 * 1024 * 1024
 RATING_LABELS = {"again": "重来", "hard": "困难", "good": "良好", "easy": "简单"}
+ENTRY_LINKS = "、".join(f"/{user}" for user in USERS)
 FormText = Annotated[str, Form()]
 T = TypeVar("T")
 log = logging.getLogger(__name__)
@@ -36,11 +37,11 @@ def _json(request: Request) -> bool:
     return request.headers.get("accept") == "application/json"
 
 
-def _cookie(request: Request, response: Response, token: str, ttl: int) -> Response:
+def _cookie(request: Request, response: Response, token: str) -> Response:
     response.set_cookie(
         COOKIE,
         token,
-        max_age=ttl,
+        max_age=SESSION_TTL,
         httponly=True,
         secure=request.url.scheme == "https",
         samesite="strict",
@@ -104,30 +105,40 @@ def create_app(data_dir: Path) -> FastAPI:
     def session_for(request: Request) -> Session | None:
         return auth.session(request.cookies.get(COOKIE))
 
-    def _verified_access(request: Request) -> bool:
-        config: access.AccessConfig | None = request.app.state.access
-        if config is None:
-            return False
+    def _trusted_entry(request: Request) -> bool:
         client = request.client
-        # Only the local tunnel proxy may present Access assertions; a direct
-        # LAN connection cannot spoof its way in with a forged header.
-        if client is None or client.host not in ("127.0.0.1", "::1"):
+        # Commands issued on this machine (the import CLI) are trusted as is.
+        if client is not None and client.host in ("127.0.0.1", "::1"):
+            return True
+        # Everything else must arrive through the tunnel with a Cloudflare
+        # Access assertion. Proxy headers are only honored from loopback, so
+        # an https scheme proves the request came through cloudflared.
+        config: access.AccessConfig | None = request.app.state.access
+        if config is None or request.url.scheme != "https":
             return False
         token = request.headers.get("Cf-Access-Jwt-Assertion")
-        return bool(token) and access.valid_assertion(config, token)
+        if not token:
+            return False
+        if not access.valid_assertion(config, token):
+            log.warning("Rejected a Cloudflare Access assertion.")
+            return False
+        return True
 
-    def _access_entry(request: Request, user: str) -> Response:
-        if not _verified_access(request):
-            return RedirectResponse("/login", status_code=303)
-        token, _ = auth.access_session(user)
-        return _cookie(
-            request, RedirectResponse("/study", status_code=303), token, SESSION_TTL
+    def access_entry(request: Request, user: str) -> Response:
+        if not _trusted_entry(request):
+            raise HTTPException(401, f"请通过入口链接进入：{ENTRY_LINKS}。")
+        token, session = auth.access_session(user)
+        response = (
+            JSONResponse({"user": user, "csrf": session.csrf})
+            if _json(request)
+            else RedirectResponse("/study", status_code=303)
         )
+        return _cookie(request, response, token)
 
     def protected(request: Request, csrf: str | None = None) -> tuple[Session, str]:
         session = session_for(request)
-        if session is None or session.user is None:
-            raise HTTPException(401, "请先登录。")
+        if session is None:
+            raise HTTPException(401, f"请通过入口链接进入：{ENTRY_LINKS}。")
         if csrf is not None and not session.accepts_csrf(csrf):
             raise HTTPException(403, "表单已失效，请刷新后重试。")
         return session, session.user
@@ -135,57 +146,6 @@ def create_app(data_dir: Path) -> FastAPI:
     @app.get("/")
     def index():
         return RedirectResponse("/study", status_code=303)
-
-    @app.get("/login")
-    def login_page(request: Request):
-        session = session_for(request)
-        if session is not None and session.user is not None:
-            if _json(request):
-                return JSONResponse({"user": session.user, "csrf": session.csrf})
-            return RedirectResponse("/study", status_code=303)
-        if session is None:
-            token, session = auth.begin_login()
-        else:
-            token = None
-        response = (
-            JSONResponse({"csrf": session.csrf})
-            if _json(request)
-            else page(request, "login", session=session, users=USERS)
-        )
-        return _cookie(request, response, token, LOGIN_TTL) if token else response
-
-    @app.post("/login")
-    def login(request: Request, user: FormText, password: FormText, csrf: FormText):
-        session = session_for(request)
-        if (
-            session is None
-            or session.user is not None
-            or not session.accepts_csrf(csrf)
-        ):
-            raise HTTPException(403, "请重新打开登录页。")
-        # Accept the account name in any case, like the import CLI does.
-        user = user.strip().lower()
-        result = auth.login(session, user, password)
-        if result is None:
-            message = "账号或密码错误。"
-            if _json(request):
-                raise HTTPException(401, message)
-            return page(request, "login", 401, session=session, message=message)
-        token, authenticated = result
-        response = (
-            JSONResponse({"user": user, "csrf": authenticated.csrf})
-            if _json(request)
-            else RedirectResponse("/study", status_code=303)
-        )
-        return _cookie(request, response, token, SESSION_TTL)
-
-    @app.post("/logout")
-    def logout(request: Request, csrf: FormText):
-        session, _ = protected(request, csrf)
-        auth.logout(session)
-        response = RedirectResponse("/login", status_code=303)
-        response.delete_cookie(COOKIE, httponly=True, samesite="strict")
-        return response
 
     def study_page(
         request: Request, session: Session, card: StudyCard | None
@@ -203,8 +163,8 @@ def create_app(data_dir: Path) -> FastAPI:
     @app.get("/study")
     def study(request: Request):
         session = session_for(request)
-        if session is None or session.user is None:
-            return RedirectResponse("/login", status_code=303)
+        if session is None:
+            raise HTTPException(401, f"请通过入口链接进入：{ENTRY_LINKS}。")
         service: StudyService = request.app.state.study
         card = _study_operation(session.user, lambda: service.next_card(session.user))
         return study_page(request, session, card)
@@ -306,11 +266,11 @@ def create_app(data_dir: Path) -> FastAPI:
     # One entry link per account, e.g. https://anki.aizhi.app/xct.
     for user in USERS:
 
-        def access_entry(request: Request, user: str = user) -> Response:
-            return _access_entry(request, user)
+        def entry_route(request: Request, user: str = user) -> Response:
+            return access_entry(request, user)
 
         app.add_api_route(
-            f"/{user}", access_entry, methods=["GET"], name=f"access-entry-{user}"
+            f"/{user}", entry_route, methods=["GET"], name=f"access-entry-{user}"
         )
 
     return app

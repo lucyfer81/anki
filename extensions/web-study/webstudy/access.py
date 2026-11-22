@@ -4,10 +4,13 @@
 """Automatic sign-in behind Cloudflare Access, one entry link per account."""
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import jwt
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -43,7 +46,10 @@ _clients: dict[str, jwt.PyJWKClient] = {}
 def _jwk_client(config: AccessConfig) -> jwt.PyJWKClient:
     client = _clients.get(config.certs_url)
     if client is None:
-        client = jwt.PyJWKClient(config.certs_url)
+        # Cloudflare rejects the default Python-urllib agent with 403.
+        client = jwt.PyJWKClient(
+            config.certs_url, headers={"User-Agent": "webstudy/0.1"}
+        )
         _clients[config.certs_url] = client
     return client
 
@@ -53,6 +59,14 @@ def valid_assertion(config: AccessConfig, token: str) -> bool:
     try:
         key = _jwk_client(config).get_signing_key_from_jwt(token)
         claims = jwt.decode(token, key.key, algorithms=["RS256"], audience=config.aud)
-    except (jwt.PyJWTError, OSError):
+    except (jwt.PyJWTError, OSError) as exc:
+        log.warning("Access assertion rejected: %s", exc)
         return False
-    return claims.get("iss") == config.issuer
+    if claims.get("iss") != config.issuer:
+        log.warning(
+            "Access assertion issuer %r does not match %r",
+            claims.get("iss"),
+            config.issuer,
+        )
+        return False
+    return True

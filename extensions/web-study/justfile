@@ -10,9 +10,6 @@ setup wheel:
     uv sync --inexact
     uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --reinstall-package anki "$(realpath -- "$1")"
 
-init-users:
-    uv run --no-sync python -m webstudy.cli init-users
-
 serve host port:
     uv run --no-sync python -m webstudy.cli serve --host "$1" --port "$2"
 

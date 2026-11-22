@@ -1,39 +1,38 @@
 # Anki 双用户 Web 单词卡
 
-XCT、LCL 用局域网浏览器学习同一份词表。两个账号的 Anki 集合独立，评分、到期日和复习历史不共享。这个服务不与桌面 Anki 同步，也不会打开桌面用户的集合。预设账号在 `webstudy/__init__.py` 的 `USERS` 中定义（当前为 `xct`、`lcl`，登录时大小写均可）。
+XCT、LCL 用浏览器学习同一份词表。两个账号的 Anki 集合独立，评分、到期日和复习历史不共享。这个服务不与桌面 Anki 同步，也不会打开桌面用户的集合。
+
+身份认证完全由 Cloudflare Access 负责（由部署者自行配置和管控）。服务本身没有账号密码：每人打开自己的入口链接，通过 Access 认证后直接进入学习页。入口链接（按 `webstudy/__init__.py` 的 `USERS` 生成）：
+
+- `https://anki.aizhi.app/xct`
+- `https://anki.aizhi.app/lcl`
 
 ## 安装和启动
 
-需要 Linux 或 macOS、[`just`](https://just.systems/)、[`uv`](https://docs.astral.sh/uv/) 和本仓库要求的 Rust 工具链。先在仓库根目录运行：
-
-```sh
-just wheels
-```
-
-切到扩展目录，使用 `out/wheels/` 里的本仓库 `anki-*.whl`（**不是** `aqt-*.whl` 或 PyPI 上的 Anki），把文件名替换为实际产物：
+需要 Linux 或 macOS、[`just`](https://just.systems/)、[`uv`](https://docs.astral.sh/uv/) 和本仓库要求的 Rust 工具链。先在仓库根目录运行 `just wheels`，再切换到扩展目录，使用 `out/wheels/` 里的本仓库 `anki-*.whl`（**不是** `aqt-*.whl` 或 PyPI 上的 Anki）：
 
 ```sh
 cd extensions/web-study
 just setup '../../out/wheels/anki-<实际文件名>.whl'
-just init-users
 just serve 0.0.0.0 8765
 ```
 
-`setup` 使用仓库根目录的 `.venv`。`init-users` 交互设置各账号（XCT、LCL）的密码，只存带盐哈希；停服后可重跑以同时更换两个密码并注销旧会话。`serve` 使用单 worker 并独占锁定 `extensions/web-study/data/`，与启动命令的工作目录和地址无关。
+`serve` 使用单 worker 并独占锁定 `extensions/web-study/data/`，与启动命令的工作目录和地址无关。
 
-### 通过域名和 HTTPS 访问（可选）
+## 谁能进入
 
-前提：本机运行 Cloudflare Tunnel，`anki.aizhi.app` 的 Service 指向 `http://127.0.0.1:8765`，并用 Cloudflare Access 保护。`serve` 只信任回环来源的 `X-Forwarded-Proto`，经隧道访问时 Cookie 自动带 `Secure`，局域网直连 HTTP 不受影响。
+入口链接接受两类请求，其余一律返回 401：
 
-在 `data/access.json` 配置自动登录（`aud` 是 Access 应用概览页的 AUD Tag）：
+1. **经 Cloudflare Tunnel 进来的请求**：携带 Access 签发的 JWT（`Cf-Access-Jwt-Assertion` 头），并用 `data/access.json` 里配置的公钥完成验签（签名、受众 AUD、签发方、有效期）。只有经本机回环进来的代理头会被信任，因此 `https` 即代表来自隧道；局域网直连无法伪装。
+2. **本机发起的命令**：`import-file` 等本机运维操作直接信任回环来源，供词表导入使用。
+
+`data/access.json` 示例（`aud` 是 Access 应用概览页的 AUD Tag）：
 
 ```json
 { "team": "vincentgroup", "aud": "<AUD Tag>", "domain": "anki.aizhi.app" }
 ```
 
-配置好后，每人使用自己的入口链接：打开 `https://anki.aizhi.app/xct`，通过 Cloudflare Access 认证后直接进入 XCT 的学习页，无需选账号或输密码（LCL 同理，用 `/lcl`）。入口链接只负责进入；之后的页面都是共同的 `/study`。应用会验证 Access 签发的 JWT（签名、受众、有效期），且只信任经本机隧道回环进来的请求；局域网直连或直接打开 `https://anki.aizhi.app` 仍走账号密码登录。注意：能通过 Access 认证的人都可以打开任一入口链接，请把 Access 策略限制到家庭成员。「退出」只退出本应用会话，下次打开入口链接会凭 Access 再次自动进入。
-
-**仅用于可信局域网。** HTTP 不加密密码、会话或学习内容，不要做公网端口转发。`0.0.0.0` 会监听所有 IPv4 接口；也可绑定指定的局域网 IP，或用 `127.0.0.1` 限制为本机。防火墙只放行需要访问的局域网来源。
+注意：能通过 Access 认证的人都可以打开任一入口链接，Access 策略请限制到家庭成员。打开另一人的入口链接会切换到对方的账号。
 
 ## 导入词表
 
@@ -56,13 +55,14 @@ mkdir -p inbox
 just import-file inbox/words.csv --user lcl
 ```
 
-输入 LCL 的密码、核对差异并确认。若服务只监听指定局域网地址或端口不是 `8765`，追加 `--url http://<服务机局域网IP>:<端口>`。如果确认后某个账号投递失败，页面会标出待重试账号；它下次取题或服务重启时会重试，也可以重新确认。其他账号的复习记录不回滚。
+`--user` 选择词义选择和确认操作归属的账号。若服务只监听指定局域网地址或端口不是 `8765`，追加 `--url http://<服务机局域网IP>:<端口>`。如果确认后某个账号投递失败，页面会标出待重试账号；它下次取题或服务重启时会重试，也可以重新确认。其他账号的复习记录不回滚。
 
 ## 验收和备份
 
-1. 从第二台机器打开 `http://<服务机局域网IP>:8765`。用两个独立浏览器会话分别登录 XCT、LCL。
+1. 打开 `https://anki.aizhi.app/xct`，通过 Access 认证后应直接看到学习页和账号 XCT。
 2. 上传一条带 ID 的词。XCT 翻卡并评「简单」，LCL 应仍能看到这张新卡。通过 `inbox/` 修改同一 ID 的释义，LCL 应能看到新释义；XCT 不应因此立即重学，等卡片重新到期时会用新释义。
-3. 停服重启，确认账号隔离、词条和进度仍在。停服备份整个 `extensions/web-study/data/`，不要只复制其中一个数据库；备份含密码哈希和会话，应限制访问。
+3. 直接访问 `http://<服务机局域网IP>:8765`（未走隧道）应被拒绝；在本机运行 `just import-file` 应正常工作。
+4. 停服重启，确认账号隔离、词条和进度仍在。停服备份整个 `extensions/web-study/data/`。
 
 每次合并上游后，在仓库根目录重新构建并更新本地 wheel，再用临时数据库跑回归测试：
 
@@ -77,4 +77,4 @@ just setup '../../out/wheels/anki-<实际文件名>.whl'
 just test
 ```
 
-扩展测试验证真实 Anki 取题、评分、词条更新不改卡片身份、投递中断重试，以及网页与命令行走同一导入流程。测试只用临时数据，不接触 `data/`。
+扩展测试验证真实 Anki 取题、评分、词条更新不改卡片身份、投递中断重试、入口链接的信任边界，以及网页与命令行走同一导入流程。测试只用临时数据，不接触 `data/`。

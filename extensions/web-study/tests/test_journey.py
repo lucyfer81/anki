@@ -9,7 +9,7 @@ import httpx2
 import pytest
 import uvicorn
 
-from tests.helpers import PASSWORDS, card_state, confirm, field, login, reveal, upload
+from tests.helpers import card_state, confirm, field, login, reveal, upload
 from webstudy import USERS, cli
 from webstudy.anki_adapter import StudyCollection
 from webstudy.app import create_app
@@ -54,9 +54,6 @@ def test_web_and_inbox_share_vocabulary_without_resetting_progress(
     data = tmp_path / "data"
     monkeypatch.setattr(cli, "ROOT", tmp_path)
     monkeypatch.setattr(cli, "DATA", data)
-    passwords = iter([PASSWORDS[first]] * 2 + [PASSWORDS[second]] * 2)
-    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(passwords))
-    cli.main(["init-users"])
 
     inbox = tmp_path / "inbox"
     inbox.mkdir()
@@ -89,9 +86,6 @@ def test_web_and_inbox_share_vocabulary_without_resetting_progress(
             assert [state[1::2] for state in original.values()] == [(1, 1), (0, 0)]
             assert "old meaning" in reveal(b, b.get("/study")).text
 
-            monkeypatch.setattr(
-                cli.getpass, "getpass", lambda prompt: PASSWORDS[second]
-            )
             monkeypatch.setattr("builtins.input", lambda prompt: "y")
             cli.main(["import-file", "inbox/words.csv", "--user", second, "--url", url])
             output = capsys.readouterr().out

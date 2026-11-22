@@ -4,7 +4,6 @@
 from concurrent.futures import ThreadPoolExecutor
 
 from tests.helpers import (
-    PASSWORDS,
     browsers,
     card_state,
     confirm,
@@ -15,17 +14,13 @@ from tests.helpers import (
 )
 from webstudy import USERS
 from webstudy.app import create_app
-from webstudy.auth import Auth
 
 
 def test_rating_is_account_bound_and_concurrent_submissions_only_count_once(tmp_path):
     first, second = USERS
-    Auth(tmp_path / "auth.sqlite3").initialize(PASSWORDS)
     with browsers(create_app(tmp_path)) as (a, b):
-        assert a.get("/study", follow_redirects=False).headers["location"] == "/login"
-        assert login(a, first, "wrong-password").status_code == 401
-        assert login(a, first).status_code == 303
-        assert login(b, second).status_code == 303
+        assert a.get("/study").status_code == 401
+        assert login(a, first).status_code == login(b, second).status_code == 303
         assert confirm(a, upload(a, b"id,word,meaning\nw1,pomelo,citrus\n")).is_success
 
         question = a.get("/study")
@@ -86,16 +81,10 @@ def test_rating_is_account_bound_and_concurrent_submissions_only_count_once(tmp_
 
         assert "暂无到期卡片" in a.get("/study").text
         assert "pomelo" in b.get("/study").text
-        assert (
-            a.post(
-                "/logout",
-                data={"csrf": field(a.get("/study"), "csrf")},
-                follow_redirects=False,
-            ).status_code
-            == 303
-        )
-        assert a.get("/vocabulary.csv").status_code == 401
         assert b.get("/vocabulary.csv").status_code == 200
+        # Opening the other entry link switches the browser's account.
+        assert login(a, second).status_code == 303
+        assert f"单词复习 · {second.upper()}" in a.get("/study").text
 
     assert card_state(tmp_path, first)[1::2] == (1, 1)
     assert card_state(tmp_path, second)[1::2] == (0, 0)
@@ -105,7 +94,6 @@ def test_import_preview_is_session_bound_and_confirmation_updates_both_accounts(
     tmp_path,
 ):
     first, second = USERS
-    Auth(tmp_path / "auth.sqlite3").initialize(PASSWORDS)
     with browsers(create_app(tmp_path)) as (a, b):
         assert login(a, first).status_code == login(b, second).status_code == 303
         initial = upload(a, b"id,word,meaning\nw1,pomelo,<old meaning>\n")
@@ -140,7 +128,6 @@ def test_import_preview_is_session_bound_and_confirmation_updates_both_accounts(
 
 def test_bulk_ambiguous_preview_can_be_confirmed(tmp_path):
     first, _ = USERS
-    Auth(tmp_path / "auth.sqlite3").initialize(PASSWORDS)
     with browsers(create_app(tmp_path)) as (a, _):
         assert login(a, first).status_code == 303
         assert confirm(

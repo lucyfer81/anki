@@ -3,7 +3,6 @@
 
 import argparse
 import fcntl
-import getpass
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -13,12 +12,10 @@ import uvicorn
 
 from webstudy import USERS
 from webstudy.app import MAX_UPLOAD, create_app
-from webstudy.auth import Auth
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 ACCOUNT_LABELS = "、".join(user.upper() for user in USERS)
-ACCOUNT_CHOICES = " 或 ".join(user.upper() for user in USERS)
 ACCOUNT_MENU = "/".join(user.upper() for user in USERS)
 
 
@@ -35,24 +32,10 @@ def data_lock(data_dir: Path) -> Iterator[None]:
         yield
 
 
-def init_users() -> None:
-    passwords = {}
-    for user in USERS:
-        password = getpass.getpass(f"账号 {user.upper()} 的新密码：")
-        if getpass.getpass("再输入一次：") != password:
-            raise ValueError("两次密码不一致；未修改账号。")
-        passwords[user] = password
-    with data_lock(DATA):
-        Auth(DATA / "auth.sqlite3").initialize(passwords)
-    print(f"{ACCOUNT_LABELS} 密码已保存；旧会话已失效。")
-
-
 def serve(host: str, port: int) -> None:
     if not 1 <= port <= 65535:
         raise ValueError("端口必须在 1 到 65535 之间。")
     with data_lock(DATA):
-        if not Auth(DATA / "auth.sqlite3").initialized():
-            raise ValueError("请先运行 init-users 设置账号密码。")
         uvicorn.run(
             create_app(DATA),
             host=host,
@@ -130,24 +113,18 @@ def import_file(path: Path, url: str, user: str | None) -> None:
         content = file.read(MAX_UPLOAD + 1)
     if len(content) > MAX_UPLOAD:
         raise ValueError("文件不能超过 2 MiB。")
-    user = user or input(f"登录账号（{ACCOUNT_MENU}）：").strip().lower()
+    user = user or input(f"账号（{ACCOUNT_MENU}）：").strip().lower()
     if user not in USERS:
-        raise ValueError(f"请选择账号 {ACCOUNT_CHOICES}。")
-    password = getpass.getpass(f"账号 {user.upper()} 的密码：")
-    # Talk directly to the LAN service, never via ambient proxy settings.
+        raise ValueError(f"请选择账号 {ACCOUNT_MENU}。")
+    # Commands from this machine are trusted by the service; talk to it
+    # directly, never via ambient proxy settings.
     with httpx2.Client(
         base_url=url,
         headers={"Accept": "application/json"},
         trust_env=False,
         timeout=60,
     ) as client:
-        csrf = _json(client.get("/login"))["csrf"]
-        login = _json(
-            client.post(
-                "/login", data={"user": user, "password": password, "csrf": csrf}
-            )
-        )
-        csrf = login["csrf"]
+        csrf = _json(client.get(f"/{user}"))["csrf"]
         preview = _json(
             client.post(
                 "/imports/preview",
@@ -175,7 +152,6 @@ def import_file(path: Path, url: str, user: str | None) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="webstudy")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("init-users", help=f"交互设置或更换 {ACCOUNT_LABELS} 的密码")
     serve_parser = commands.add_parser("serve", help="启动单进程 Web 学习服务")
     serve_parser.add_argument("--host", required=True)
     serve_parser.add_argument("--port", required=True, type=int)
@@ -187,9 +163,7 @@ def main(argv: list[str] | None = None) -> None:
     importer.add_argument("--user", choices=USERS)
     args = parser.parse_args(argv)
     try:
-        if args.command == "init-users":
-            init_users()
-        elif args.command == "serve":
+        if args.command == "serve":
             serve(args.host, args.port)
         else:
             import_file(args.file, args.url, args.user)
